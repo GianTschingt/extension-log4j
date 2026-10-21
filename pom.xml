@@ -21,7 +21,7 @@
         <mvnGroupPath>org/lucee</mvnGroupPath>
         <mvnArtifactId>log4j</mvnArtifactId>
         <filename>log4j-extension</filename>
-        <luceeCoreVersion>9.0.0.4-ALPHA</luceeCoreVersion>
+        <luceeCoreVersion>9.0.0.266-ALPHA</luceeCoreVersion>
         <releaseType>server</releaseType>
         <label>Log4j Extension</label>
         <class>org.lucee.extension.log4j.Log4jEngine</class>

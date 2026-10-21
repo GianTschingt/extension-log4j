@@ -6,7 +6,7 @@
 
   <properties>
     <!-- the root pom.xml is the source of truth (luceeCoreVersion), it passes it with -DluceeCoreVersion, this value is only the default when this module is built alone -->
-    <luceeCoreVersion>9.0.0.4-ALPHA</luceeCoreVersion>
+    <luceeCoreVersion>9.0.0.266-ALPHA</luceeCoreVersion>
   </properties>
 
     <name>Log4j</name>
