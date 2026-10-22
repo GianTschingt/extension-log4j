@@ -266,6 +266,8 @@ public final class Log4jEngine implements LogEngine {
 	@Override
 	public final Object getAppender(Config config, Object layout, String name, ClassDefinition cd, Map<String, String> appenderArgs) {
 		if (appenderArgs == null) appenderArgs = new HashMap<String, String>();
+		// the argument names are not case sensitive (the admin stores them as entered, e.g. "PATH"), all lookups below use lower case names
+		lowerCase(appenderArgs);
 		// Appender
 		Appender appender = null;
 		if (cd != null && cd.hasClass()) {
@@ -303,7 +305,7 @@ public final class Log4jEngine implements LogEngine {
 			else if (APPENDER_DATASOURCE.equalsIgnoreCase(cd.getClassName())) {
 				// datasource
 				String dsn = Util.toString(appenderArgs.get("datasource"), null);
-				if (Util.isEmpty(dsn, true)) dsn = Util.toString(appenderArgs.get("datasourceName"), null);
+				if (Util.isEmpty(dsn, true)) dsn = Util.toString(appenderArgs.get("datasourcename"), null);
 				if (!Util.isEmpty(dsn, true)) dsn = dsn.trim();
 				appenderArgs.put("datasource", dsn);
 
