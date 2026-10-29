@@ -38,6 +38,90 @@ component extends="org.lucee.cfml.test.LuceeTestCase" labels="log4j" {
 				}
 			});
 
+			it( title="LDEV-2248 json layout keeps the thread name and writes the thread id and priority as separate keys", body=function( currentSpec ) {
+				var name = "log4jtest-json-thread-" & createUUID();
+				var file = expandPath( "{lucee-config}/logs/#name#.log" );
+				try {
+					updateLog( name, "json", "resource", { path: file } );
+					var token = createUUID();
+					writeLog( text="json thread #token#", log=name, type="information" );
+					var json = deserializeJSON( trim( fileRead( file ) ) );
+					expect( json.message ).toInclude( token );
+					expect( json.thread ).toBeString();
+					expect( len( json.thread ) ).toBeGT( 0 );
+					expect( json.threadId ).toBeNumeric();
+					expect( json.threadPriority ).toBeNumeric();
+				}
+				finally {
+					removeLog( name, file );
+				}
+			});
+
+			it( title="LDEV-2248 json layout writes an ISO-8601 timestamp and keeps the instant", body=function( currentSpec ) {
+				var name = "log4jtest-json-timestamp-" & createUUID();
+				var file = expandPath( "{lucee-config}/logs/#name#.log" );
+				try {
+					updateLog( name, "json", "resource", { path: file } );
+					var System = createObject( "java", "java.lang.System" );
+					var before = System.currentTimeMillis() - 2000;
+					writeLog( text="json timestamp #createUUID()#", log=name, type="information" );
+					var after = System.currentTimeMillis() + 2000;
+					var json = deserializeJSON( trim( fileRead( file ) ) );
+					expect( json.timestamp ).toMatch( "^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$" );
+					// the timestamp is in UTC, so it has to be a moment between before and after
+					var ts = createObject( "java", "java.time.Instant" ).parse( json.timestamp ).toEpochMilli();
+					expect( ts ).toBeGTE( before );
+					expect( ts ).toBeLTE( after );
+					// the existing time keys stay
+					expect( structKeyExists( json, "instant" ) || structKeyExists( json, "timeMillis" ) ).toBeTrue();
+				}
+				finally {
+					removeLog( name, file );
+				}
+			});
+
+			it( title="LDEV-2248 json layout writes the cause chain inside thrown", body=function( currentSpec ) {
+				var name = "log4jtest-json-cause-" & createUUID();
+				var file = expandPath( "{lucee-config}/logs/#name#.log" );
+				try {
+					updateLog( name, "json", "resource", { path: file } );
+					var token = createUUID();
+					var inner = createObject( "java", "java.lang.IllegalStateException" ).init( "inner #token#" );
+					var outer = createObject( "java", "java.lang.RuntimeException" ).init( "outer #token#", inner );
+					try {
+						throw( object=outer );
+					}
+					catch ( any e ) {
+						writeLog( text="json cause #token#", log=name, type="error", exception=e );
+					}
+					var json = deserializeJSON( trim( fileRead( file ) ) );
+					expect( json ).toHaveKey( "thrown" );
+					expect( json.thrown ).toHaveKey( "name" );
+					expect( json.thrown ).toHaveKey( "message" );
+					// the existing stack trace key stays
+					expect( json ).toHaveKey( "extendedStackTrace" );
+
+					// walk the chain: every element has name and message, the next one is in "cause"
+					var names = [];
+					var messages = [];
+					var node = json.thrown;
+					while ( isStruct( node ) && names.len() < 20 ) {
+						expect( node ).toHaveKey( "name" );
+						expect( node ).toHaveKey( "message" );
+						names.append( node.name );
+						messages.append( node.message );
+						node = structKeyExists( node, "cause" ) ? node.cause : "";
+					}
+					expect( names ).toInclude( "java.lang.IllegalStateException" );
+					expect( messages ).toInclude( "inner #token#" );
+					// the cause comes after the exception that has it
+					expect( arrayFind( names, "java.lang.IllegalStateException" ) ).toBeGT( 1 );
+				}
+				finally {
+					removeLog( name, file );
+				}
+			});
+
 			it( title="xml layout writes xml events", body=function( currentSpec ) {
 				var name = "log4jtest-xml-" & createUUID();
 				var file = expandPath( "{lucee-config}/logs/#name#.log" );

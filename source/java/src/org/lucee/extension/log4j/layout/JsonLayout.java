@@ -20,6 +20,9 @@ package org.lucee.extension.log4j.layout;
 
 import org.lucee.extension.log4j.Util;
 import java.nio.charset.Charset;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.IdentityHashMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -47,6 +50,10 @@ public final class JsonLayout extends AbstractStringLayout { // TODO <Serializab
 	private static final int DEFAULT_SIZE = 256;
 	private static final String[] FORMATS = new String[] { "json" };
 	private static final String NL = System.lineSeparator();
+	// LDEV-2248: ISO-8601 timestamp in UTC with millisecond precision, e.g. 2026-10-29T02:54:03.809Z
+	private static final DateTimeFormatter ISO_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
+	// LDEV-2248: maximum number of causes written to "thrown", protects against very long or cyclic cause chains
+	private static final int MAX_CAUSES = 20;
 
 	private final boolean includeStacktrace;
 	private final boolean includeTimeMillis;
@@ -116,6 +123,8 @@ public final class JsonLayout extends AbstractStringLayout { // TODO <Serializab
 		try {
 			Struct root = util.createStruct("linked");
 			long now = event.getTimeMillis();
+			// LDEV-2248: ISO-8601 timestamp, the instant/timeMillis below stay for compatibility
+			root.setEL("timestamp", ISO_TIMESTAMP.format(java.time.Instant.ofEpochMilli(now)));
 			// timeMillis
 			if (includeTimeMillis) {
 				root.setEL("timeMillis", now);
@@ -129,6 +138,7 @@ public final class JsonLayout extends AbstractStringLayout { // TODO <Serializab
 				sct.set("nanoOfSecond", instant.getNanoOfSecond());
 			}
 
+			// LDEV-2248: "thread" holds the thread name, id and priority are written as threadId and threadPriority
 			root.setEL("thread", event.getThreadName());
 			root.setEL("level", event.getLevel().name());
 
@@ -163,11 +173,8 @@ public final class JsonLayout extends AbstractStringLayout { // TODO <Serializab
 
 			// Thrown
 			if (thrown != null) {
-				Struct sct = util.createStruct("linked");
+				Struct sct = createThrown(util, thrown, includeStacktrace, stacktraceAsString);
 				root.setEL("thrown", sct);
-				sct.setEL("commonElementCount", 0D); // TODO
-				sct.setEL("message", thrown.getMessage());
-				sct.setEL("name", thrown.getClass().getName());
 				if (includeStacktrace) {
 					root.setEL("extendedStackTrace", createStacktrace(util, thrown.getStackTrace(), stacktraceAsString));
 				}
@@ -202,14 +209,9 @@ public final class JsonLayout extends AbstractStringLayout { // TODO <Serializab
 				}
 			}
 
-			// thread
-			{
-				Thread thread = Thread.currentThread();
-				Struct th = util.createStruct("linked");
-				th.setEL("id", thread.getId());
-				th.setEL("priority", thread.getPriority());
-				root.setEL("thread", th);
-			}
+			// thread id and priority
+			root.setEL("threadId", event.getThreadId());
+			root.setEL("threadPriority", event.getThreadPriority());
 
 			if (this.locationInfo) {
 				StackTraceElement data = null;
@@ -304,6 +306,33 @@ public final class JsonLayout extends AbstractStringLayout { // TODO <Serializab
 			throw CFMLEngineFactory.getInstance().getExceptionUtil().createPageRuntimeException(e);
 		}
 
+	}
+
+	// LDEV-2248: name and message of the exception, followed by its cause chain as nested "cause" elements
+	private Struct createThrown(Creation util, Throwable thrown, boolean withStacktrace, boolean stacktraceAsString) throws PageException {
+		Struct root = util.createStruct("linked");
+		root.setEL("commonElementCount", 0D); // TODO
+		root.setEL("message", thrown.getMessage());
+		root.setEL("name", thrown.getClass().getName());
+
+		Map<Throwable, Boolean> seen = new IdentityHashMap<>();
+		seen.put(thrown, Boolean.TRUE);
+		Struct parent = root;
+		Throwable cause = thrown.getCause();
+		int count = 0;
+		while (cause != null && count < MAX_CAUSES && seen.put(cause, Boolean.TRUE) == null) {
+			Struct sct = util.createStruct("linked");
+			sct.setEL("message", cause.getMessage());
+			sct.setEL("name", cause.getClass().getName());
+			if (withStacktrace) {
+				sct.setEL("extendedStackTrace", createStacktrace(util, cause.getStackTrace(), stacktraceAsString));
+			}
+			parent.setEL("cause", sct);
+			parent = sct;
+			cause = cause.getCause();
+			count++;
+		}
+		return root;
 	}
 
 	private static Object toJson(String strJson, Object defaultValue) {
